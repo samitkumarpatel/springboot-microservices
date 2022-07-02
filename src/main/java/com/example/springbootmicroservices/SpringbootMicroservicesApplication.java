@@ -15,7 +15,11 @@ import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.util.Arrays;
+import java.util.List;
 
 import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
 import static org.springframework.web.reactive.function.server.ServerResponse.ok;
@@ -35,7 +39,8 @@ class Router {
 	public RouterFunction<ServerResponse> route(Handler handler) {
 		return RouterFunctions
 				.route(GET("/hello"), handler::hello)
-				.andRoute(GET("/notification"), handler::sendNotification);
+				.andRoute(GET("/notification"), handler::sendNotification)
+				.andRoute(GET("/numbers"),handler::numbers);
 	}
 }
 
@@ -46,6 +51,7 @@ class Handler {
 	private static final String SUCCESS = "success";
 	private static final String FAILURE = "failure";
 	private final Notification notification;
+	private final Validate validate;
 	public Mono<ServerResponse> hello(ServerRequest request) {
 		var status = request.queryParam("status").orElse(SUCCESS);
 		if (SUCCESS.equalsIgnoreCase(status)) {
@@ -70,6 +76,23 @@ class Handler {
 							.doOnNext(m -> log.info("Message sent Successfully to {}",to))
 							.doOnError(e -> Mono.error(e))
 				, Message.class);
+	}
+
+	public Mono<ServerResponse> numbers(ServerRequest request) {
+		return ok().body(
+				validate.validate(request.queryParam("user").orElse(""),Integer.valueOf(request.queryParam("age").orElse("10")))
+						.flatMap(b -> {
+							var x = 10;
+							if(b) {
+								log.info("TRUE: Just for debug purpose");
+								++x;
+							} else {
+								log.info("FALSE: Just for debug purpose");
+								--x;
+							}
+							return Mono.just(Integer.valueOf(x));
+						})
+				, Integer.class);
 	}
 
 }
@@ -100,6 +123,49 @@ class SmsNotification implements Notification {
 	}
 }
 
+@Service
+class UserValidator {
+	public Mono<String> validateUser(String userName) {
+		if(userName.length() > 0 ) {
+			return Mono.just("SUCCESS");
+		} else {
+			return Mono.error(new ForbiddenException("User Is not valid"));
+		}
+	}
+}
+
+@Service
+@RequiredArgsConstructor
+class Validate {
+	private final UserValidator userValidator;
+	public Mono<Boolean> validate(String userName, int age) {
+		return userValidator.validateUser(userName)
+				.flatMap(res -> ageEvaluation(age))
+				.doOnNext(bool -> ageValidateAgain(bool));
+	}
+
+	private Mono<Boolean> ageEvaluation(int age) {
+		return age > 10 ? Mono.just(Boolean.TRUE) : Mono.just(Boolean.FALSE);
+	}
+
+	private void ageValidateAgain(Boolean bool) {
+		if(!bool) throw new ValidationException("not valid");
+	}
+}
+
+@ResponseStatus(HttpStatus.FORBIDDEN)
+class ForbiddenException extends RuntimeException {
+	ForbiddenException(String message) {
+		super(message);
+	}
+}
+
+@ResponseStatus(HttpStatus.BAD_REQUEST)
+class ValidationException extends RuntimeException {
+	ValidationException(String message) {
+		super(message);
+	}
+}
 
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
 class Hello {
