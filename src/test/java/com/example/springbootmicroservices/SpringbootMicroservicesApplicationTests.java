@@ -185,8 +185,9 @@ class RouterTest {
 						.queryParam("age","11").build())
 				.exchange()
 				.expectStatus().isOk()
-				.expectBody()
-				.json("11");
+				//.expectBody(String.class).value(text -> assertEquals("11", text))
+				.expectBody().json("11")
+				;
 	}
 
 	@Test
